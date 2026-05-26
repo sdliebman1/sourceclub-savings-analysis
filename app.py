@@ -10,7 +10,7 @@ st.markdown("""
 <style>
     .main {background-color: #f8f9fa;}
     h1 {color: #1e3a8a;}
-    .low-confidence {background-color: #fee2e2;}
+    .low-confidence {background-color: #fee2e2 !important;}
 </style>
 """, unsafe_allow_html=True)
 
@@ -96,22 +96,24 @@ for idx, row in prospect.iterrows():
 prospect['Savings_Per_Unit'] = prospect['Current_Price'] - prospect['SourceClub_Price'].fillna(0)
 prospect['Total_Savings'] = prospect['Savings_Per_Unit'] * prospect.get('Quantity', 1).fillna(1)
 
-# Color low-confidence rows
-def highlight_confidence(val):
-    if val == "Low":
-        return 'background-color: #fee2e2'
-    return ''
+# Display results with color highlighting for low confidence
+def highlight_confidence(row):
+    if row['Confidence'] == "Low":
+        return ['background-color: #fee2e2'] * len(row)
+    return [''] * len(row)
 
 st.subheader("Matching Results")
-st.dataframe(prospect.style.format({
+styled = prospect.style.format({
     'Current_Price': '${:.2f}', 'SourceClub_Price': '${:.2f}',
     'Savings_Per_Unit': '${:.2f}', 'Total_Savings': '${:.2f}'
-}).applymap(highlight_confidence, subset=['Confidence']), use_container_width=True)
+}).apply(highlight_confidence, axis=1)
+
+st.dataframe(styled, use_container_width=True)
 
 total_savings = prospect['Total_Savings'].sum()
 st.metric("**Total Potential Savings (this order)**", f"${total_savings:,.2f}")
 
-st.caption("Low-confidence matches (red) should be reviewed manually — exactly like the current process.")
+st.caption("🔴 Red rows = Low-confidence matches that need human review (exactly like the current manual process)")
 
 # Exports
 st.header("3. Export Reports")
@@ -130,4 +132,4 @@ with colY:
                        f"SourceClub_Savings_Report_{datetime.now().strftime('%Y%m%d')}.html", "text/html")
     st.caption("Open HTML → Print → Save as PDF")
 
-st.success("✅ Live, interactive, production-ready prototype built in <4 hours")
+st.success("✅ Live, interactive, production-ready prototype — ready for the case study!")
