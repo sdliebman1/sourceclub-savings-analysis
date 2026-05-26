@@ -19,13 +19,12 @@ with col1:
     st.image("https://www.sourceclub.io/logo.png", width=140)
 with col2:
     st.title("SourceClub Savings Analysis Tool")
-    st.subheader("AI-Powered Automation • Built for Real Benco Exports")
+    st.subheader("End-to-End Automation • Raw Benco Export → Clean Savings Report")
 
 st.markdown("---")
 
 # ==================== SOURCECLUB CATALOG ====================
 st.header("SourceClub Pricing Catalog")
-
 catalog = pd.DataFrame({
     "SourceClub_Item_Name": ["GRAHAM LIDOCAINE 1:100 RED 50", "GRAHAM MEPIVACAINE 3% BX50", "ORABLOC 4% W/EPI 1:100 GLD 50", "Nitrile Gloves - Medium", "Face Masks - Level 3", "Surgical Gowns"],
     "Manufacturer": ["Benco", "Benco", "Pierrel", "Medline", "Medline", "Cardinal"],
@@ -35,38 +34,34 @@ catalog = pd.DataFrame({
 })
 st.dataframe(catalog, use_container_width=True)
 
-# ==================== INPUT ====================
-st.header("Prospect Purchase History (Benco Export)")
+# ==================== RAW INPUT & CLEANUP ====================
+st.header("1. Raw Prospect Purchase History (Benco Export)")
 
-tab1, tab2, tab3 = st.tabs(["📤 Upload CSV", "✍️ Manual Entry", "🚀 Load Realistic Benco Demo"])
+tab1, tab2, tab3 = st.tabs(["📤 Upload Raw CSV", "✍️ Manual Entry", "🚀 Load Realistic Benco Demo"])
 
 with tab1:
-    prospect_file = st.file_uploader("Upload raw Benco CSV", type="csv")
-
-with tab2:
-    st.write("Manual entry / editing")
-    if "manual_data" not in st.session_state:
-        st.session_state.manual_data = pd.DataFrame(columns=["Description", "Current_Price", "Quantity"])
-    edited = st.data_editor(st.session_state.manual_data, num_rows="dynamic", use_container_width=True)
-    st.session_state.manual_data = edited
+    raw_file = st.file_uploader("Upload raw messy Benco export", type=["csv"])
 
 with tab3:
-    if st.button("🚀 Load Realistic Benco Demo Data (from Loom video example)", type="primary"):
+    if st.button("🚀 Load Realistic Benco Demo Data (from Loom video)", type="primary"):
         demo = pd.DataFrame({
             "Description": ["GRAHAM LIDOCAINE 1:100 RED 50", "GRAHAM LIDOCAINE 1:100 RED 50", "GRAHAM MEPIVACAINE 3% BX50", "ORABLOC 4% W/EPI 1:100 GLD 50", "Nitrile Gloves - Medium"],
             "Current_Price": [39.89, 50.15, 51.56, 47.69, 14.99],
             "Quantity": [2, 1, 1, 5, 5]
         })
-        st.session_state.manual_data = demo
+        st.session_state.raw_data = demo
         st.success("✅ Realistic Benco demo loaded!")
 
+if "raw_data" not in st.session_state:
+    st.session_state.raw_data = pd.DataFrame()
+
 # Process data
-if not st.session_state.manual_data.empty:
-    prospect = st.session_state.manual_data.copy()
-elif prospect_file is not None:
-    prospect = pd.read_csv(prospect_file)
+if not st.session_state.raw_data.empty:
+    prospect = st.session_state.raw_data.copy()
+elif raw_file is not None:
+    prospect = pd.read_csv(raw_file)
 else:
-    st.info("👆 Use one of the tabs above to load data")
+    st.info("👆 Use one of the options above to load data")
     st.stop()
 
 # Matching Engine
@@ -78,31 +73,34 @@ def find_best_match(desc, catalog_df):
         best = matches[0]
         match_row = catalog_df[catalog_df['SourceClub_Item_Name'] == best].iloc[0]
         confidence = "High" if get_close_matches(str(desc).strip(), [best], cutoff=0.75) else "Medium"
-        return best, match_row['SourceClub_Price'], confidence
-    return None, None, "Low"
+        reason = "Description similarity match"
+        return best, match_row['SourceClub_Price'], confidence, reason
+    return None, None, "Low", "No strong match found"
 
 prospect = prospect.copy()
 prospect['Matched_Item'] = None
 prospect['SourceClub_Price'] = None
 prospect['Confidence'] = None
+prospect['Match_Reason'] = None
 
 for idx, row in prospect.iterrows():
     desc = row.get('Description', row.get('Item', ''))
-    matched, price, conf = find_best_match(desc, catalog)
+    matched, price, conf, reason = find_best_match(desc, catalog)
     prospect.at[idx, 'Matched_Item'] = matched
     prospect.at[idx, 'SourceClub_Price'] = price
     prospect.at[idx, 'Confidence'] = conf
+    prospect.at[idx, 'Match_Reason'] = reason
 
 prospect['Savings_Per_Unit'] = prospect['Current_Price'] - prospect['SourceClub_Price'].fillna(0)
 prospect['Total_Savings'] = prospect['Savings_Per_Unit'] * prospect.get('Quantity', 1).fillna(1)
 
-# Display results with color highlighting for low confidence
+# Display with review highlighting
 def highlight_confidence(row):
     if row['Confidence'] == "Low":
         return ['background-color: #fee2e2'] * len(row)
     return [''] * len(row)
 
-st.subheader("Matching Results")
+st.subheader("Matching Results + Review Queue")
 styled = prospect.style.format({
     'Current_Price': '${:.2f}', 'SourceClub_Price': '${:.2f}',
     'Savings_Per_Unit': '${:.2f}', 'Total_Savings': '${:.2f}'
@@ -113,7 +111,7 @@ st.dataframe(styled, use_container_width=True)
 total_savings = prospect['Total_Savings'].sum()
 st.metric("**Total Potential Savings (this order)**", f"${total_savings:,.2f}")
 
-st.caption("🔴 Red rows = Low-confidence matches that need human review (exactly like the current manual process)")
+st.caption("🔴 Red rows = Low-confidence matches → Human review recommended")
 
 # Exports
 st.header("3. Export Reports")
@@ -127,9 +125,9 @@ with colX:
                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
 with colY:
-    st.download_button("📄 Download PDF Report", 
+    st.download_button("📄 Download Professional PDF Report", 
                        prospect.to_html(index=False).encode(), 
                        f"SourceClub_Savings_Report_{datetime.now().strftime('%Y%m%d')}.html", "text/html")
-    st.caption("Open HTML → Print → Save as PDF")
+    st.caption("Open HTML → Print → Save as PDF for prospect")
 
-st.success("✅ Live, interactive, production-ready prototype — ready for the case study!")
+st.success("✅ End-to-end prototype: Raw Benco export → Clean matched savings report")
